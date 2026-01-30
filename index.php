@@ -9,7 +9,7 @@ ini_set('display_errors', 0);
 
 /* ================= CONFIG ================= */
 $config = [
-    'password'       => '14001404', // رمز ورود کلی به چت روم
+    'password'       => '14001400', // رمز ورود کلی به چت روم
     'refresh_rate'   => 50000, // میلی ثانیه
     'base_file'      => 'chat_history',
     'users_file'     => 'chat_users.json',
