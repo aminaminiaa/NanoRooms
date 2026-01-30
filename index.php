@@ -1,22 +1,23 @@
 <?php
 error_reporting(0);
 ini_set('display_errors', 0);
+date_default_timezone_set('Asia/Tehran');
 
-@ini_set('upload_max_filesize', '100M');
-@ini_set('post_max_size', '100M');
+// افزایش محدودیت‌ها برای آپلود فایل
+@ini_set('upload_max_filesize', '128M');
+@ini_set('post_max_size', '128M');
 @ini_set('memory_limit', '256M');
 
 /* ================= CONFIG ================= */
 $config = [
-    'password'       => '14001404', // رمز ورود کلی
-    'refresh_rate'   => 2000, // میلی ثانیه (برای تست سریعتر کردم، میتوانید برگردانید به 200000)
+    'password'       => '14001404', 
+    'refresh_rate'   => 20000, 
     'base_file'      => 'chat_history',
     'users_file'     => 'chat_users.json',
     'upload_dir'     => 'uploads',
     'max_messages'   => 50,
     'use_whitelist'  => false,
     'whitelist'      => ['09120000000'],
-    // --- تنظیمات اتاق‌ها ---
     'rooms' => [
         'general' => 'گفتگوی عمومی',
         'news'    => 'اخبار و اطلاعیه ها',
@@ -39,23 +40,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
     $action = $_POST['action'] ?? '';
     
-    // تشخیص اتاق (پیش‌فرض روی اولین اتاق)
     $roomKey = $_POST['room'] ?? array_key_first($config['rooms']);
     if (!array_key_exists($roomKey, $config['rooms'])) {
         $roomKey = array_key_first($config['rooms']);
     }
 
-    // فایل دیتای مربوط به هر اتاق جداگانه ساخته می‌شود
     $dataFile = __DIR__ . '/' . $config['base_file'] . '_' . $roomKey . '.json';
     $usersFile = __DIR__ . '/' . $config['users_file'];
 
-    // --- AUTH: LOGOUT ---
+    // --- AUTH ---
     if ($action === 'logout') {
         setcookie('chat_token', '', time() - 3600, "/", "", false, true);
         exit(json_encode(['status'=>'success']));
     }
 
-    // --- AUTH: LOGIN ---
     if ($action === 'login') {
         $sysPass = $_POST['password'] ?? '';
         $mobile = $_POST['mobile'] ?? '';
@@ -110,32 +108,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'send') {
         $msgText = $_POST['message'] ?? '';
         $replyToId = $_POST['reply_to_id'] ?? null;
-        $hasFile = isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK;
+        
+        $uploadedFiles = [];
+        $hasFile = false;
 
-        if (trim($msgText) === '' && !$hasFile) exit(json_encode(['status'=>'empty']));
-
-        $fileData = null;
-        if ($hasFile) {
+        // Handle File Uploads
+        if (isset($_FILES['files'])) {
             $upDir = __DIR__ . '/' . $config['upload_dir'];
             if (!is_dir($upDir)) mkdir($upDir, 0755, true);
-            $f = $_FILES['file'];
-            $ext = pathinfo($f['name'], PATHINFO_EXTENSION);
-            if ($f['name'] === 'voice.webm') $ext = 'webm';
-            
-            $newName = time() . '_' . rand(1000,9999) . '.' . $ext;
-            
-            if ($f['size'] > 100 * 1024 * 1024) exit(json_encode(['status'=>'error', 'msg'=>'حجم فایل زیاد است']));
-            
-            if (move_uploaded_file($f['tmp_name'], $upDir . '/' . $newName)) {
-                $fileData = [
-                    'name' => $f['name'],
-                    'path' => $config['upload_dir'] . '/' . $newName,
-                    'is_image' => in_array(strtolower($ext), ['jpg', 'jpeg', 'png', 'gif', 'webp']),
-                    'is_audio' => in_array(strtolower($ext), ['mp3', 'wav', 'ogg', 'webm', 'm4a']),
-                    'size' => round($f['size']/1024) . ' KB'
+
+            $files = $_FILES['files'];
+            if (!is_array($files['name'])) {
+                $count = 1;
+                $files = [
+                    'name' => [$files['name']],
+                    'type' => [$files['type']],
+                    'tmp_name' => [$files['tmp_name']],
+                    'error' => [$files['error']],
+                    'size' => [$files['size']]
                 ];
+            } else {
+                $count = count($files['name']);
+            }
+
+            for ($i = 0; $i < $count; $i++) {
+                if ($files['error'][$i] === UPLOAD_ERR_OK) {
+                    $hasFile = true;
+                    $name = $files['name'][$i];
+                    $tmp = $files['tmp_name'][$i];
+                    $size = $files['size'][$i];
+                    
+                    $ext = pathinfo($name, PATHINFO_EXTENSION);
+                    if (empty($ext) || $name === 'voice_record.webm') $ext = 'webm'; 
+
+                    $newName = time() . '_' . rand(1000,9999) . '_' . $i . '.' . $ext;
+                    
+                    if (move_uploaded_file($tmp, $upDir . '/' . $newName)) {
+                        $uploadedFiles[] = [
+                            'name' => ($name === 'voice_record.webm') ? 'پیام صوتی' : $name,
+                            'path' => $config['upload_dir'] . '/' . $newName,
+                            'is_image' => in_array(strtolower($ext), ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                            'is_audio' => in_array(strtolower($ext), ['mp3', 'wav', 'ogg', 'webm', 'm4a']),
+                            'size' => round($size/1024) . ' KB'
+                        ];
+                    }
+                }
             }
         }
+
+        if (trim($msgText) === '' && !$hasFile) exit(json_encode(['status'=>'empty']));
 
         $msgs = getJson($dataFile);
         
@@ -147,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'id' => $m['id'],
                         'name' => $m['name'],
                         'preview' => mb_substr($m['msg'], 0, 50) . (mb_strlen($m['msg'])>50 ? '...' : ''),
-                        'has_file' => !empty($m['file'])
+                        'has_file' => !empty($m['files']) || !empty($m['file'])
                     ];
                     break;
                 }
@@ -155,9 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (count($msgs) >= $config['max_messages']) {
-            // آرشیو کردن با نام اتاق
             rename($dataFile, __DIR__ . '/' . $config['base_file'] . '_' . $roomKey . '_archive_' . date('Ymd_His') . '.json');
-            $msgs = [['id'=>time(), 'mobile'=>'sys', 'name'=>'System', 'msg'=>'--- آرشیو شد ---', 'time'=>date('H:i'), 'type'=>'system']];
+            $msgs = [['id'=>time(), 'mobile'=>'sys', 'name'=>'System', 'msg'=>'--- آرشیو شد ---', 'time'=>date('H:i'), 'date'=>date('Y-m-d'), 'type'=>'system']];
         }
 
         $msgs[] = [
@@ -165,9 +185,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'mobile' => $authMobile,
             'name' => $authName,
             'msg' => $msgText,
-            'file' => $fileData,
+            'files' => $uploadedFiles,
             'reply_to' => $replyInfo,
             'time' => date('H:i'),
+            'date' => date('Y-m-d'),
             'type' => 'normal',
             'reactions' => []
         ];
@@ -217,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Siterah Multi-Room</title>
+    <title>Siterah</title>
     <style>
         @font-face { font-family: 'Alibaba'; src: url('Alibaba.ttf') format('truetype'); }
         
@@ -237,6 +258,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --shadow: rgba(0,0,0,0.2);
             --active-tab-bg: #2563eb;
             --tab-text: #94a3b8;
+            --date-badge-bg: rgba(30, 41, 59, 0.95);
+            --ctx-bg: rgba(30, 41, 59, 0.9);
+            --link-color: #93c5fd; 
         }
 
         [data-theme="light"] {
@@ -255,14 +279,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --shadow: rgba(0,0,0,0.05);
             --active-tab-bg: #e1f5fe;
             --tab-text: #64748b;
+            --date-badge-bg: rgba(243, 244, 246, 0.95);
+            --ctx-bg: rgba(255, 255, 255, 0.9);
+            --link-color: #2563eb;
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Alibaba', Tahoma, sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; overflow: hidden; font-size: 14px; transition: background 0.3s, color 0.3s; }
+        /* Prevent Selection - Fixed for Mobile */
+        * { 
+            box-sizing: border-box; margin: 0; padding: 0; font-family: 'Alibaba', Tahoma, sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none; /* iOS Safari disable long press menu */
+            -webkit-user-select: none; /* Safari */
+            -moz-user-select: none; 
+            -ms-user-select: none; 
+            user-select: none; 
+        }
+
+        /* Allow Selection only in Input Fields */
+        input, textarea { 
+            -webkit-user-select: text;
+            user-select: text;
+        }
+
+        body { 
+            background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; overflow: hidden; 
+            font-size: 14px; transition: background 0.3s, color 0.3s; 
+        }
         
-        /* RESTORED SCROLLBAR STYLE */
-        ::-webkit-scrollbar { width: 15px; }
-        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 8px; }
 
         /* LOGIN */
@@ -292,7 +337,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             width: 95%;
         }
 
-        /* ROOM TABS */
         #room-tabs {
             width: 95%; max-width: 800px;
             display: flex; gap: 8px; overflow-x: auto;
@@ -314,13 +358,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         #scroll-area { flex: 1; overflow-y: auto; width: 100%; display: flex; flex-direction: column; }
-        #msg-inner { width: 100%; max-width: 800px; margin: 0 auto; padding: 20px 15px; display: flex; flex-direction: column; gap: 15px; padding-bottom: 20px;}
+        #msg-inner { width: 100%; max-width: 800px; margin: 0 auto; padding: 20px 15px; display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px;}
+
+        /* DATE GROUPING */
+        .day-group { display: flex; flex-direction: column; gap: 10px; position: relative; }
+        
+        .date-sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            text-align: center;
+            padding: 10px 0;
+            pointer-events: none;
+        }
+        
+        .date-badge {
+            display: inline-block;
+            background: var(--date-badge-bg);
+            color: var(--text);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 5px var(--shadow);
+            pointer-events: auto;
+            font-weight: bold;
+        }
 
         .msg-container { display: flex; width: 100%; }
         .msg-container.me { justify-content: flex-end; }
         .msg-container.other { justify-content: flex-start; }
         
-        .msg-wrapper { display: flex; align-items: flex-end; gap: 10px; max-width: 85%; }
+        .msg-wrapper { display: flex; align-items: flex-end; gap: 10px; max-width: 85%; position: relative; }
         .msg-container.me .msg-wrapper { flex-direction: row-reverse; } 
         
         .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text); }
@@ -341,10 +411,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .msg-footer { display: flex; justify-content: flex-end; align-items: center; margin-top: 4px; opacity: 0.7; font-size: 0.65rem; gap: 5px; }
 
-        @keyframes flash { 0% { background: #f59e0b; } 100% { background: var(--msg-other-bg); } }
-        @keyframes flash-me { 0% { background: #f59e0b; } 100% { background: var(--msg-me-bg); } }
-        .highlight-msg { animation: flash 1s ease; }
-        .msg-container.me .highlight-msg { animation: flash-me 1s ease; }
+        .copy-btn {
+            background: none; border: none; cursor: pointer; color: inherit; opacity: 0.5; font-size: 0.8rem; padding: 2px;
+            transition: 0.2s;
+        }
+        .copy-btn:hover { opacity: 1; transform: scale(1.1); }
+        .copy-btn:active { transform: scale(0.9); }
 
         .reply-quote {
             border-right: 3px solid var(--accent); background: var(--reply-bg);
@@ -357,7 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         /* INPUT AREA */
         #input-wrapper {
-            background: linear-gradient(to top, var(--bg) 90%, transparent);
+            background: linear-gradient(to top, var(--bg) 95%, transparent);
             padding: 10px 0; width: 100%; position: relative; z-index: 50;
             flex-shrink: 0;
             padding-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -365,85 +437,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #input-container { max-width: 800px; margin: 0 auto; padding: 0 10px; position: relative; }
         #input-box {
             background: var(--chat-bg); border: 1px solid var(--border); border-radius: 20px;
-            padding: 5px; display: flex; flex-direction: column; position: relative;
+            padding: 8px; display: flex; flex-direction: column; position: relative;
             box-shadow: 0 -2px 10px var(--shadow); 
-            min-height: 98px; /* Minimum height limit */
-            transition: height 0.05s; 
+            gap: 5px;
+            min-height: 105px;
+            transition: height 0.05s;
         }
         
         #resize-handle { 
             width: 40px; height: 4px; background: #94a3b8; border-radius: 2px; 
-            margin: 4px auto; cursor: ns-resize; flex-shrink: 0; opacity: 0.5; 
+            margin: 0 auto 5px auto; cursor: ns-resize; flex-shrink: 0; opacity: 0.5; 
             touch-action: none; display: block; 
         }
-        #reply-bar { display: none; background: var(--bg); border-right: 3px solid var(--accent); padding: 8px 12px; margin: 5px; border-radius: 6px; align-items: center; justify-content: space-between; }
 
-        .input-row { display: flex; align-items: flex-end; gap: 5px; padding: 5px; flex: 1; height: 100%; }
+        #reply-bar { display: none; background: var(--bg); border-right: 3px solid var(--accent); padding: 8px 12px; margin-bottom: 5px; border-radius: 6px; align-items: center; justify-content: space-between; }
+
+        .input-row-text { width: 100%; display: flex; flex: 1; }
         textarea { 
-            flex:1; background:transparent; border:none; color:var(--text); resize:none; padding:8px 5px; outline:none; font-size:1rem; 
-            height: 100%; 
-            min-height: 60px;
+            width: 100%; background:transparent; border:none; color:var(--text); resize:none; padding:5px; outline:none; font-size:1rem; 
+            min-height: 40px; height: 100%;
         }
+
+        .input-row-tools { display: flex; justify-content: space-between; align-items: center; width: 100%; padding-top: 5px; border-top: 1px solid var(--border); flex-shrink: 0; }
+        .tools-group { display: flex; gap: 8px; align-items: center; }
         
         .icon-btn { 
-            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; 
+            width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; 
             border-radius: 50%; border: none; background: transparent; color: var(--text); 
             opacity: 0.7; cursor: pointer; transition: 0.2s; 
-            flex-shrink: 0; 
-            font-size: 1.2rem;
+            flex-shrink: 0; font-size: 1.2rem;
         }
         .icon-btn:active { background: var(--bg); opacity: 1; transform: scale(0.95); }
-        .send-btn { background: var(--accent); color: white; opacity: 1; border-radius: 12px; }
+        .send-btn { background: var(--accent); color: white; opacity: 1; border-radius: 12px; width: 40px; height: 40px; }
         
-        #ctx-menu { position: fixed; background: var(--chat-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: none; flex-direction: column; gap: 8px; z-index: 10000; box-shadow: 0 5px 15px var(--shadow); min-width: 120px; }
-        .ctx-row { display: flex; gap: 10px; justify-content: center; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-        .ctx-emoji { font-size: 1.4rem; cursor: pointer; transition: 0.2s; }
-        .ctx-emoji:hover { transform: scale(1.2); }
-        .ctx-btn { cursor: pointer; padding: 6px 10px; border-radius: 4px; color: var(--text); font-size: 0.9rem; }
-        .ctx-btn:hover { background: var(--bg); }
+        /* NEW CONTEXT MENU STYLE */
+        #ctx-backdrop { position: fixed; inset: 0; z-index: 9999; display: none; }
+        #ctx-menu { 
+            position: absolute;
+            background: var(--ctx-bg); 
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border); 
+            border-radius: 10px; 
+            padding: 6px; 
+            display: none; 
+            flex-direction: column; 
+            gap: 2px; 
+            z-index: 10000; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); 
+            width: 220px; 
+            animation: fadeIn 0.15s ease-out;
+            transform-origin: top left;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+        .ctx-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .ctx-emoji { font-size: 1.4rem; cursor: pointer; transition: 0.2s; text-align: center; border-radius: 4px; padding: 2px; }
+        .ctx-emoji:hover { background: rgba(255,255,255,0.1); transform: scale(1.1); }
+        
+        .ctx-list-item { 
+            padding: 8px 12px; cursor: pointer; border-radius: 6px; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; color: var(--text);
+            transition: 0.1s;
+        }
+        .ctx-list-item:hover { background: var(--accent); color: #fff; }
+        .ctx-list-item.delete:hover { background: #ef4444; }
+        .ctx-icon { width: 16px; text-align: center; font-size: 1rem; }
 
         #emoji-grid { 
             position:absolute; bottom:100%; right:0; left: 0; margin: 0 auto; max-width: 800px;
             background:var(--chat-bg); padding:10px; border-radius:12px; display:none; 
-            grid-template-columns:repeat(auto-fill, minmax(40px, 1fr)); 
+            grid-template-columns:repeat(auto-fill, minmax(45px, 1fr)); 
             gap:5px; box-shadow:0 5px 20px var(--shadow); border:1px solid var(--border); margin-bottom: 10px; z-index: 101; 
+            max-height: 250px; overflow-y: auto;
         }
-        .emoji-item { cursor:pointer; font-size:1.5rem; padding:8px; border-radius:8px; text-align:center; }
-        .emoji-item:active { background: var(--bg); }
+        .emoji-item { cursor:pointer; font-size:1.6rem; padding:8px; border-radius:8px; text-align:center; transition: 0.1s;}
+        .emoji-item:active { background: var(--bg); transform: scale(0.9); }
         
         .reactions-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
         .reaction-item { background: rgba(0,0,0,0.1); border-radius: 12px; padding: 2px 8px; font-size: 0.75rem; color: var(--text); display:flex; gap:4px; align-items:center; opacity: 0.8; }
         
-        /* LINK COLORS & IMAGES & AUDIO */
-        .msg-img { max-width: 100%; border-radius: 8px; margin-top: 5px; cursor: pointer; }
-        
-        /* Stylized Audio Player */
-        .msg-audio { 
-            max-width: 100%; 
-            height: 40px; 
-            margin-top: 8px; 
-            margin-bottom: 4px;
-            border-radius: 20px; /* Rounded corners */
-            display: block;
-        }
-        
-        .msg-link { text-decoration: underline; }
-        /* Link color for ME (Dark/Blue bubble) */
-        .msg-container.me .msg-link { color: #2563eb; }
-        /* Link color for OTHER */
-        .msg-container.other .msg-link { color: var(--accent); }
+        .msg-img { max-width: 100%; border-radius: 8px; margin-bottom: 5px; cursor: pointer; display: block; }
+        .msg-audio { max-width: 100%; height: 40px; margin-bottom: 5px; border-radius: 20px; display: block; }
+        .msg-link { text-decoration: underline; color: var(--link-color); }
+        .file-attachment { display:flex; align-items:center; margin-bottom:5px; text-decoration:none; color:inherit; background:rgba(0,0,0,0.05); padding:8px; border-radius:8px; border:1px solid var(--border); }
 
-        /* RECORDING UI */
         .rec-dot { color: #ef4444; animation: pulse 1s infinite; font-size: 1.2rem; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
         @media (max-width: 600px) {
             #input-container { padding: 0 10px; }
             header, #room-tabs { width: 95%; } 
-            .input-row { padding: 5px; }
             .msg-wrapper { max-width: 90%; }
-            .icon-btn { flex-shrink: 0; }
+            /* Mobile Context Menu (Bottom Sheet) */
+            #ctx-menu { 
+                position: fixed; top: auto !important; bottom: 0; left: 0; right: 0; 
+                width: 100%; border-radius: 20px 20px 0 0; border: none; border-top: 1px solid var(--border);
+                transform: none; animation: slideUp 0.2s ease-out; box-shadow: 0 -5px 20px rgba(0,0,0,0.3);
+            }
+            .input-row-tools { padding-top: 8px; }
         }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -458,35 +550,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-box">
             <h3>Login</h3>
             <p id="login-msg" style="color:#ef4444;font-size:0.8rem;margin:10px 0"></p>
-            
             <input type="tel" id="mobile-inp" class="login-inp" placeholder="شماره موبایل" dir="ltr">
-            
             <div id="register-fields" style="display:none">
                 <input type="text" id="name-inp" class="login-inp" placeholder="نام نمایشی (فارسی)">
             </div>
-            
             <div id="password-field">
                 <input type="password" id="pass-inp" class="login-inp" placeholder="رمز عبور شخصی" dir="ltr">
             </div>
-
             <button id="login-btn" class="login-btn">ورود / بررسی</button>
         </div>
     </div>
 
+    <div id="ctx-backdrop" onclick="closeCtx()"></div>
     <div id="ctx-menu">
         <div class="ctx-row">
             <span class="ctx-emoji" onclick="doReact('❤️')">❤️</span>
             <span class="ctx-emoji" onclick="doReact('😂')">😂</span>
             <span class="ctx-emoji" onclick="doReact('😭')">😭</span>
             <span class="ctx-emoji" onclick="doReact('👍')">👍</span>
-            <span class="ctx-emoji" onclick="doReact('👎')">👎</span>
             <span class="ctx-emoji" onclick="doReact('🔥')">🔥</span>
+            <span class="ctx-emoji" onclick="doReact('🌹')">🌹</span>
+            <span class="ctx-emoji" onclick="doReact('🙏')">🙏</span>
+            <span class="ctx-emoji" onclick="doReact('☺️')">☺️</span>
+            <span class="ctx-emoji" onclick="doReact('😅')">😅</span>
+            <span class="ctx-emoji" onclick="doReact('😳')">😳</span>
         </div>
-        <div class="ctx-opts">
-            <div class="ctx-btn" onclick="doReply()">↩️ پاسخ</div>
-            <div id="ctx-edit-opts" style="display:none; flex-direction:column; gap:5px">
-                <div class="ctx-btn" onclick="doEdit()">✎ ویرایش</div>
-                <div class="ctx-btn" onclick="doDelete()" style="color:#ef4444">🗑 حذف</div>
+        
+        <div class="ctx-list-item" onclick="doReply()">
+            <span class="ctx-icon">↩️</span> <span>پاسخ</span>
+        </div>
+        <div class="ctx-list-item" onclick="doCopyText()">
+            <span class="ctx-icon">📋</span> <span>کپی متن</span>
+        </div>
+
+        <div id="ctx-edit-opts" style="display:none; flex-direction:column;">
+            <div class="ctx-list-item" onclick="doEdit()">
+                <span class="ctx-icon">✏️</span> <span>ویرایش</span>
+            </div>
+            <div class="ctx-list-item delete" onclick="doDelete()" style="color:#ef4444;">
+                <span class="ctx-icon">🗑</span> <span>حذف پیام</span>
             </div>
         </div>
     </div>
@@ -501,7 +603,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:5px 10px;border-radius:6px;cursor:pointer">خروج</button>
             </header>
             
-            <!-- Room Tabs -->
             <div id="room-tabs">
                 <?php foreach($config['rooms'] as $key => $label): ?>
                     <div class="room-tab" id="tab-<?php echo $key; ?>" onclick="switchRoom('<?php echo $key; ?>')"><?php echo $label; ?></div>
@@ -518,7 +619,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div id="emoji-grid"></div>
                 <div id="input-box">
                     <div id="resize-handle"></div>
-                    
+
                     <div id="reply-bar">
                         <div style="overflow:hidden">
                             <div id="reply-label" style="font-size:0.7rem; color:var(--accent); font-weight:bold"></div>
@@ -528,26 +629,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
 
                     <!-- Recording UI -->
-                    <div id="rec-ui" style="display:none; align-items:center; padding:5px 10px; gap:10px; height:100%">
+                    <div id="rec-ui" style="display:none; align-items:center; padding:5px; gap:10px; height:100%; width:100%;">
                         <span class="rec-dot">●</span>
                         <span id="rec-time" style="font-variant-numeric: tabular-nums;">00:00</span>
                         <div style="flex:1"></div>
-                        <button class="icon-btn" onclick="cancelRec()" style="color:#ef4444; border:1px solid #ef4444; font-size:0.9rem">لغو</button>
-                        <button class="icon-btn" onclick="finishRec()" style="color:#fff; background:#22c55e; font-size:1rem; opacity:1">ارسال</button>
+                        <button class="icon-btn" onclick="cancelRec()" style="color:#ef4444; border:1px solid #ef4444; font-size:0.9rem; width:auto; padding:0 10px; border-radius:15px;">لغو</button>
+                        <button class="icon-btn" onclick="finishRec()" style="color:#fff; background:#22c55e; font-size:1rem; opacity:1; width:auto; padding:0 10px; border-radius:15px;">ارسال</button>
                     </div>
 
-                    <div class="input-row" id="normal-input-row">
-                        <button class="icon-btn" id="emoji-toggle">😊</button>
-                        <textarea id="msg-text" placeholder="پیام ..." rows="1"></textarea>
+                    <!-- Normal Input -->
+                    <div id="normal-input-group" style="display:flex; flex-direction:column; height:100%;">
+                        <div class="input-row-text">
+                            <textarea id="msg-text" placeholder="پیام خود را بنویسید..." rows="1"></textarea>
+                        </div>
                         
-                        <input type="file" id="file-inp" hidden>
-                        <button class="icon-btn" onclick="document.getElementById('file-inp').click()">📎</button>
-                        
-                        <button class="icon-btn" id="rec-btn" onclick="startRec()">🎤</button>
-
-                        <button class="icon-btn send-btn" id="send-btn">➤</button>
-                        <button class="icon-btn" id="cancel-edit-btn" style="display:none;color:#ef4444">✕</button>
+                        <div class="input-row-tools">
+                            <div class="tools-group">
+                                <button class="icon-btn" id="emoji-toggle">😊</button>
+                                <input type="file" id="file-inp" multiple hidden> 
+                                <button class="icon-btn" onclick="document.getElementById('file-inp').click()">📎</button>
+                                <button class="icon-btn" id="rec-btn" onclick="startRec()">🎤</button>
+                                <button class="icon-btn" id="cancel-edit-btn" style="display:none;color:#ef4444">✕</button>
+                            </div>
+                            <div class="tools-group">
+                                <button class="icon-btn send-btn" id="send-btn">➤</button>
+                            </div>
+                        </div>
                     </div>
+
                 </div>
             </div>
         </div>
@@ -555,22 +664,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         const CONFIG = { pass: "<?php echo $config['password']; ?>", delay: <?php echo $config['refresh_rate']; ?> };
-        const EMOJIS = ["😀","😂","😍","😎","😭","😡","👍","👎","❤️","💔","🤝","🙏","👀","✅","❌","🔥"];
+        const EMOJIS = ["😀","😂","😍","😎","😭","😡","👍","👎","❤️","💔","🤝","🙏","🌹","☺️","😅","😳","✅","❌","🔥"];
         let userMobile = null;
         let chatData = [];
         let editingId = null;
         let replyingTo = null;
-        let selectedFile = null;
+        let selectedFiles = []; 
         let ctxTargetId = null;
-
-        // Multi-room support
         let currentRoom = '<?php echo array_key_first($config['rooms']); ?>';
-
-        // Recording vars
+        
+        // Voice Logic Vars
         let mediaRec = null;
         let audioChunks = [];
         let recInterval = null;
         let recStartTime = 0;
+        let recStream = null;
 
         const ui = {
             decoyInp: document.getElementById('decoy-input'),
@@ -580,6 +688,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             scrollArea: document.getElementById('scroll-area'),
             txt: document.getElementById('msg-text'),
             ctxMenu: document.getElementById('ctx-menu'),
+            ctxBackdrop: document.getElementById('ctx-backdrop'),
             emojiGrid: document.getElementById('emoji-grid'),
             inputBox: document.getElementById('input-box'),
             replyBar: document.getElementById('reply-bar'),
@@ -587,12 +696,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             replyContent: document.getElementById('reply-content'),
             themeBtn: document.getElementById('theme-btn'),
             recUi: document.getElementById('rec-ui'),
-            normalInput: document.getElementById('normal-input-row'),
+            normalGroup: document.getElementById('normal-input-group'),
             recTime: document.getElementById('rec-time'),
             roomTabs: document.querySelectorAll('.room-tab')
         };
 
-        // --- THEME LOGIC ---
         function initTheme() {
             const saved = localStorage.getItem('chat_theme') || 'dark';
             setTheme(saved);
@@ -617,26 +725,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             };
             document.querySelectorAll('.emoji-item').forEach(el => { el.onclick = () => ui.txt.value += el.innerText; });
 
+            document.addEventListener('click', () => { ui.emojiGrid.style.display = 'none'; });
+            ui.emojiGrid.onclick = e => e.stopPropagation();
+            
             const handle = document.getElementById('resize-handle');
             handle.addEventListener('mousedown', initResize);
             handle.addEventListener('touchstart', initResize);
 
-            document.addEventListener('click', () => { ui.ctxMenu.style.display = 'none'; ui.emojiGrid.style.display = 'none'; });
-            ui.emojiGrid.onclick = e => e.stopPropagation();
-            ui.ctxMenu.onclick = e => e.stopPropagation();
-            
-            // Set initial active tab
             switchRoom(currentRoom, false);
         };
 
-        // --- ROOM LOGIC ---
+        // Resize Logic
+        function initResize(e) {
+            if(e.cancelable) e.preventDefault();
+            const startY = e.clientY || e.touches[0].clientY;
+            const startH = ui.inputBox.offsetHeight;
+            const doDrag = (e) => {
+                const curY = e.clientY || e.touches[0].clientY;
+                const diff = startY - curY;
+                const newH = Math.min(Math.max(105, startH + diff), 500); 
+                ui.inputBox.style.height = newH + 'px';
+            };
+            const stopDrag = () => {
+                document.removeEventListener('mousemove', doDrag); document.removeEventListener('mouseup', stopDrag);
+                document.removeEventListener('touchmove', doDrag); document.removeEventListener('touchend', stopDrag);
+            };
+            document.addEventListener('mousemove', doDrag); document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchmove', doDrag, {passive: false}); document.addEventListener('touchend', stopDrag);
+        }
+
         function switchRoom(roomId, shouldLoad = true) {
             currentRoom = roomId;
-            // Update UI
             ui.roomTabs.forEach(tab => tab.classList.remove('active'));
             document.getElementById('tab-' + roomId).classList.add('active');
             
-            // Reset chat view
             if(shouldLoad) {
                 cancelReply();
                 document.getElementById('cancel-edit-btn').click();
@@ -645,27 +767,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // --- RECORDING LOGIC ---
+        // --- REWRITTEN VOICE LOGIC ---
         async function startRec() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('مرورگر شما از ضبط صدا پشتیبانی نمی‌کند یا دسترسی ندارد (از HTTPS استفاده کنید).');
+                alert('مرورگر شما از ضبط صدا پشتیبانی نمی‌کند یا دسترسی ندارد (HTTPS الزامی است).');
                 return;
             }
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRec = new MediaRecorder(stream);
+                recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRec = new MediaRecorder(recStream);
                 audioChunks = [];
                 
-                mediaRec.ondataavailable = e => audioChunks.push(e.data);
+                mediaRec.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+                
                 mediaRec.start();
                 
-                // Switch UI
-                ui.normalInput.style.display = 'none';
+                ui.normalGroup.style.display = 'none';
                 ui.recUi.style.display = 'flex';
                 recStartTime = Date.now();
                 updateRecTime();
                 recInterval = setInterval(updateRecTime, 1000);
             } catch(e) {
+                console.error(e);
                 alert('خطا در دسترسی به میکروفون: ' + e.message);
             }
         }
@@ -679,62 +804,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         function cancelRec() {
             stopRecInternal();
-            audioChunks = []; // discard
+            audioChunks = [];
         }
 
         function finishRec() {
             if (!mediaRec || mediaRec.state === 'inactive') return;
+            
             mediaRec.onstop = () => {
                 const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                sendVoice(blob);
+                // Convert Blob to File object for FormData
+                const file = new File([blob], "voice_record.webm", { type: "audio/webm" });
+                sendVoice(file);
             };
+            
+            mediaRec.stop();
             stopRecInternal();
         }
 
         function stopRecInternal() {
-            if (mediaRec) { mediaRec.stop(); mediaRec.stream.getTracks().forEach(t=>t.stop()); }
+            if (recStream) {
+                recStream.getTracks().forEach(track => track.stop());
+                recStream = null;
+            }
             clearInterval(recInterval);
             ui.recUi.style.display = 'none';
-            ui.normalInput.style.display = 'flex';
+            ui.normalGroup.style.display = 'flex';
         }
 
-        function sendVoice(blob) {
+        function sendVoice(file) {
             const fd = new FormData();
             fd.append('action', 'send');
-            fd.append('file', blob, 'voice.webm'); // Name triggers extension detection on server
+            // 'files[]' is key expected by PHP
+            fd.append('files[]', file);
             if(replyingTo) fd.append('reply_to_id', replyingTo.id);
-            
-            // Add Room
             fd.append('room', currentRoom);
             
-            fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
-                if(d.status === 'success') { cancelReply(); loadMsgs(true); }
-                else alert(d.msg || 'Error');
-            });
-        }
+            // UI Feedback
+            const tempBtn = document.querySelector('#rec-ui button:last-child');
+            const originalText = tempBtn ? tempBtn.innerText : '';
+            if(tempBtn) tempBtn.innerText = '...';
 
-        // --- RESIZE FIX ---
-        function initResize(e) {
-            if(e.cancelable) e.preventDefault();
-            
-            const startY = e.clientY || e.touches[0].clientY;
-            const startH = ui.inputBox.offsetHeight;
-            
-            const doDrag = (e) => {
-                const curY = e.clientY || e.touches[0].clientY;
-                const diff = startY - curY;
-                const newH = Math.min(Math.max(60, startH + diff), 400); 
-                
-                ui.inputBox.style.height = newH + 'px';
-            };
-            
-            const stopDrag = () => {
-                document.removeEventListener('mousemove', doDrag); document.removeEventListener('mouseup', stopDrag);
-                document.removeEventListener('touchmove', doDrag); document.removeEventListener('touchend', stopDrag);
-            };
-            
-            document.addEventListener('mousemove', doDrag); document.addEventListener('mouseup', stopDrag);
-            document.addEventListener('touchmove', doDrag, {passive: false}); document.addEventListener('touchend', stopDrag);
+            fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
+                if(d.status === 'success') { 
+                    cancelReply(); 
+                    loadMsgs(true); 
+                } else {
+                    alert(d.msg || 'Error');
+                }
+            }).catch(e => alert('Upload failed'));
         }
 
         function checkAuth() {
@@ -752,7 +869,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         };
 
-        // --- LOGIN LOGIC ---
         document.getElementById('login-btn').onclick = () => {
             const mobile = document.getElementById('mobile-inp').value;
             const name = document.getElementById('name-inp').value;
@@ -801,13 +917,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         document.getElementById('file-inp').onchange = (e) => {
-            if(e.target.files[0]) {
-                selectedFile = e.target.files[0];
-                showReplyBar(null, "فایل: " + selectedFile.name, true);
+            if(e.target.files.length > 0) {
+                selectedFiles = Array.from(e.target.files);
+                const names = selectedFiles.map(f => f.name).join(', ');
+                showReplyBar(null, "فایل‌ها: " + names, true);
             }
         };
         function cancelReply() {
-            replyingTo = null; selectedFile = null;
+            replyingTo = null; selectedFiles = [];
             ui.replyBar.style.display = 'none'; document.getElementById('file-inp').value = '';
         }
         function showReplyBar(label, content, isFile = false) {
@@ -817,12 +934,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         document.getElementById('send-btn').onclick = sendMessage;
-        ui.txt.onkeydown = (e) => { 
-            if(e.key === 'Enter' && !e.shiftKey) { 
-                e.preventDefault(); 
-                sendMessage(); 
-            } 
-        };
         document.getElementById('cancel-edit-btn').onclick = () => { editingId = null; ui.txt.value = ''; document.getElementById('cancel-edit-btn').style.display = 'none'; };
 
         function sendMessage() {
@@ -833,45 +944,110 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 });
                 return;
             }
-            if(!text && !selectedFile) return;
+            if(!text && selectedFiles.length === 0) return;
 
             const fd = new FormData();
             fd.append('action', 'send'); fd.append('message', text);
-            if(selectedFile) fd.append('file', selectedFile);
-            if(replyingTo) fd.append('reply_to_id', replyingTo.id);
             
-            // Add Room
+            selectedFiles.forEach((file, index) => {
+                fd.append('files[]', file);
+            });
+            
+            if(replyingTo) fd.append('reply_to_id', replyingTo.id);
             fd.append('room', currentRoom);
 
             const btn = document.getElementById('send-btn');
             const tmp = btn.innerText; btn.innerText = '...';
             fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
-                if(d.status === 'success') { ui.txt.value = ''; cancelReply(); loadMsgs(true); }
+                if(d.status === 'success') { 
+                    ui.txt.value = ''; 
+                    cancelReply(); loadMsgs(true); 
+                }
                 else alert(d.msg || 'Error');
                 btn.innerText = tmp;
             });
         }
 
         function showContext(e, id, isMe) {
-            e.preventDefault(); ctxTargetId = id;
-            ui.ctxMenu.style.left = e.clientX + 'px'; ui.ctxMenu.style.top = e.clientY + 'px';
+            e.preventDefault(); 
+            ctxTargetId = id;
+            
+            // Show/Hide Edit/Delete based on ownership (Mobile & Desktop)
+            const editOpts = document.getElementById('ctx-edit-opts');
+            editOpts.style.display = isMe ? 'flex' : 'none';
+
+            if (window.innerWidth <= 600) {
+                // Mobile Bottom Sheet
+                ui.ctxMenu.style.display = 'flex';
+                ui.ctxBackdrop.style.display = 'block';
+                return; 
+            }
+
+            // Desktop Positioning - Mouse Follow
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            
+            let top = mouseY;
+            let left = mouseX;
+
+            // Boundary checks to keep menu in viewport
+            const menuWidth = 220; // approx width from css
+            const menuHeight = 200; // approx height
+
+            if (left + menuWidth > window.innerWidth) {
+                left = mouseX - menuWidth;
+            }
+            
+            if (top + menuHeight > window.innerHeight) {
+                top = mouseY - menuHeight;
+            }
+
+            ui.ctxMenu.style.top = top + 'px';
+            ui.ctxMenu.style.left = left + 'px';
             ui.ctxMenu.style.display = 'flex';
-            document.getElementById('ctx-edit-opts').style.display = isMe ? 'flex' : 'none';
+            ui.ctxBackdrop.style.display = 'block';
         }
-        function doReact(emoji) { if(ctxTargetId) post('react', { id: ctxTargetId, emoji: emoji, room: currentRoom }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
+
+        function closeCtx() {
+            ui.ctxMenu.style.display = 'none';
+            ui.ctxBackdrop.style.display = 'none';
+        }
+        function doReact(emoji) { if(ctxTargetId) post('react', { id: ctxTargetId, emoji: emoji, room: currentRoom }).then(() => loadMsgs()); closeCtx(); }
         function doReply() {
             const msg = chatData.find(m => m.id == ctxTargetId);
-            if(msg) { replyingTo = { id: msg.id }; showReplyBar(msg.name, msg.msg || (msg.file ? "فایل" : "...")); ui.txt.focus(); }
-            ui.ctxMenu.style.display = 'none';
+            if(msg) { replyingTo = { id: msg.id }; showReplyBar(msg.name, msg.msg || (msg.files ? "فایل" : "...")); ui.txt.focus(); }
+            closeCtx();
         }
         function doEdit() {
             const msg = chatData.find(m => m.id == ctxTargetId);
             if(msg) { editingId = msg.id; ui.txt.value = msg.msg; ui.txt.focus(); document.getElementById('cancel-edit-btn').style.display = 'flex'; }
-            ui.ctxMenu.style.display = 'none';
+            closeCtx();
         }
-        function doDelete() { if(confirm('حذف؟')) post('delete', { id: ctxTargetId, room: currentRoom }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
+        function doDelete() { if(confirm('حذف؟')) post('delete', { id: ctxTargetId, room: currentRoom }).then(() => loadMsgs()); closeCtx(); }
 
-        // --- SCROLL TO REPLY ---
+        function doCopyText() {
+            const msg = chatData.find(m => m.id == ctxTargetId);
+            if(msg) {
+                navigator.clipboard.writeText(msg.msg).then(() => {
+                    closeCtx();
+                });
+            }
+        }
+
+        // Old copy button logic (kept for button inside bubble)
+        function copyText(btn) {
+            const bubble = btn.closest('.msg-bubble');
+            const textDiv = bubble.querySelector('.msg-text-content');
+            if(textDiv) {
+                const txt = textDiv.innerText;
+                navigator.clipboard.writeText(txt).then(() => {
+                    const original = btn.innerText;
+                    btn.innerText = '✔️';
+                    setTimeout(() => btn.innerText = original, 1000);
+                });
+            }
+        }
+
         window.scrollToMsg = function(id) {
             const el = document.getElementById('msg-' + id);
             if (el) {
@@ -887,73 +1063,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         };
 
         function loadMsgs(force = false) {
-            // Include room in fetch
+            // Prevent refresh if audio is playing to stop cutting off
+            if (!force) {
+                const audios = document.querySelectorAll('audio');
+                for(let a of audios) {
+                    if(!a.paused && !a.ended && a.currentTime > 0) return;
+                }
+            }
+
             post('fetch', { room: currentRoom }).then(d => {
                 const msgs = d.messages || [];
                 chatData = msgs;
-                const isBottom = ui.scrollArea.scrollTop + ui.scrollArea.clientHeight >= ui.scrollArea.scrollHeight - 50;
+                const isBottom = ui.scrollArea.scrollTop + ui.scrollArea.clientHeight >= ui.scrollArea.scrollHeight - 100;
                 ui.msgs.innerHTML = '';
 
                 if(msgs.length === 0) {
                      ui.msgs.innerHTML = '<div style="text-align:center;padding:20px;opacity:0.5">پیامی نیست</div>';
+                     return;
                 }
 
+                const grouped = {};
                 msgs.forEach(m => {
-                    if(m.type === 'system') { ui.msgs.innerHTML += `<div style="text-align:center;font-size:0.7rem;opacity:0.6;margin:10px 0">${m.msg}</div>`; return; }
-
-                    const isMe = m.mobile === userMobile;
-                    const avatar = `<div class="avatar"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>`;
-                    
-                    let replyHtml = '';
-                    if (m.reply_to) {
-                        replyHtml = `<div class="reply-quote" onclick="scrollToMsg('${m.reply_to.id}')">
-                                            <span class="reply-sender">${m.reply_to.name}</span>
-                                            <span class="reply-text">${m.reply_to.has_file ? '📎 ' : ''}${m.reply_to.preview}</span>
-                                    </div>`;
+                    let msgDateStr = m.date;
+                    if(!msgDateStr) {
+                         const ts = parseInt(m.id.toString().substring(0, 10));
+                         const dobj = new Date(ts * 1000);
+                         msgDateStr = dobj.getFullYear() + '-' + (dobj.getMonth()+1).toString().padStart(2,'0') + '-' + dobj.getDate().toString().padStart(2,'0');
                     }
+                    if(!grouped[msgDateStr]) grouped[msgDateStr] = [];
+                    grouped[msgDateStr].push(m);
+                });
 
-                    let fileHtml = '';
-                    if(m.file) {
-                        if(m.file.is_image) fileHtml = `<img src="${m.file.path}" class="msg-img" onclick="window.open(this.src)">`;
-                        else if(m.file.is_audio) fileHtml = `<audio controls src="${m.file.path}" class="msg-audio"></audio>`;
-                        else fileHtml = `<a href="${m.file.path}" target="_blank" style="display:flex;align-items:center;margin-top:5px;text-decoration:none;color:inherit;background:rgba(0,0,0,0.05);padding:5px;border-radius:4px">📎 ${m.file.name}</a>`;
-                    }
+                for (const dateStr in grouped) {
+                    const dateObj = new Date(dateStr);
+                    const persianDate = dateObj.toLocaleDateString('fa-IR', { weekday: 'long', month: 'long', day: 'numeric' });
                     
-                    let cleanText = m.msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                    // URL Regex Fix: Exclude trailing ) . ,
-                    cleanText = cleanText.replace(/(https?:\/\/[^\s]+)/g, (match) => {
-                         const urlMatch = match.match(/^(.*?)([).,]*)$/);
-                         const cleanUrl = urlMatch[1];
-                         const trailing = urlMatch[2];
-                         return '<a href="' + cleanUrl + '" target="_blank" class="msg-link">' + cleanUrl + '</a>' + trailing;
+                    let groupHtml = `<div class="day-group">
+                        <div class="date-sticky-header">
+                            <span class="date-badge">${persianDate}</span>
+                        </div>`;
+                    
+                    grouped[dateStr].forEach(m => {
+                         if(m.type === 'system') { 
+                            groupHtml += `<div style="text-align:center;font-size:0.7rem;opacity:0.6;margin:5px 0">${m.msg}</div>`; 
+                            return; 
+                         }
+
+                         const isMe = m.mobile === userMobile;
+                         const avatar = `<div class="avatar"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>`;
+                         
+                         let replyHtml = '';
+                         if (m.reply_to) {
+                             replyHtml = `<div class="reply-quote" onclick="scrollToMsg('${m.reply_to.id}')">
+                                                 <span class="reply-sender">${m.reply_to.name}</span>
+                                                 <span class="reply-text">${m.reply_to.has_file ? '📎 ' : ''}${m.reply_to.preview}</span>
+                                         </div>`;
+                         }
+     
+                         // File Logic
+                         let fileHtml = '';
+                         let allFiles = [];
+                         if(m.files) allFiles = m.files;
+                         else if(m.file) allFiles = [m.file];
+     
+                         if(allFiles.length > 0) {
+                             fileHtml = '<div style="margin-bottom:5px">';
+                             // Rule: If > 1 file, OR mixed types, force generic list. Only single Image shows as big image.
+                             const forceList = allFiles.length > 1;
+
+                             allFiles.forEach(f => {
+                                 if(f.is_image && !forceList) {
+                                     // Single Image
+                                     fileHtml += `<img src="${f.path}" class="msg-img" onclick="window.open(this.src)">`;
+                                 } else if(f.is_audio) {
+                                     fileHtml += `<audio controls src="${f.path}" class="msg-audio"></audio>`;
+                                 } else {
+                                     // Generic File List Item
+                                     fileHtml += `<a href="${f.path}" target="_blank" class="file-attachment">
+                                        <span style="font-size:1.2rem">${f.is_image ? '🖼️' : '📄'}</span>
+                                        <div style="display:flex;flex-direction:column;margin-right:5px">
+                                            <span style="font-weight:bold;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${f.name}</span>
+                                            <span style="font-size:0.7rem;opacity:0.7">${f.size}</span>
+                                        </div>
+                                     </a>`;
+                                 }
+                             });
+                             fileHtml += '</div>';
+                         }
+                         
+                         let cleanText = m.msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                         cleanText = cleanText.replace(/(https?:\/\/[^\s]+)/g, (match) => {
+                              const urlMatch = match.match(/^(.*?)([).,]*)$/);
+                              return '<a href="' + urlMatch[1] + '" target="_blank" class="msg-link">' + urlMatch[1] + '</a>' + urlMatch[2];
+                         });
+     
+                         let reactHtml = '';
+                         if(m.reactions && Object.keys(m.reactions).length > 0) {
+                             reactHtml = '<div class="reactions-list">';
+                             for(let mob in m.reactions) {
+                                 const r = m.reactions[mob];
+                                 reactHtml += `<div class="reaction-item" title="${r.name}"><span>${r.emoji}</span><span class="reaction-names" style="margin-right:2px">${r.name}</span></div>`;
+                             }
+                             reactHtml += '</div>';
+                         }
+     
+                         groupHtml += `
+                             <div class="msg-container ${isMe ? 'me' : 'other'}" id="msg-${m.id}">
+                                 <div class="msg-wrapper" oncontextmenu="showContext(event, '${m.id}', ${isMe})">
+                                     ${isMe ? avatar : avatar}
+                                     <div class="msg-bubble">
+                                         <span class="msg-name">${m.name}</span>
+                                         ${replyHtml}
+                                         ${fileHtml}
+                                         <div class="msg-text-content">${cleanText}</div>
+                                         ${reactHtml}
+                                         <div class="msg-footer">
+                                             <span>${m.time}</span>
+                                             ${m.edited ? '<span>(e)</span>' : ''}
+                                             <button class="copy-btn" onclick="copyText(this)" title="کپی">📋</button>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>`;
                     });
 
-                    let reactHtml = '';
-                    if(m.reactions && Object.keys(m.reactions).length > 0) {
-                        reactHtml = '<div class="reactions-list">';
-                        for(let mob in m.reactions) {
-                            const r = m.reactions[mob];
-                            reactHtml += `<div class="reaction-item" title="${r.name}"><span>${r.emoji}</span><span class="reaction-names" style="margin-right:2px">${r.name}</span></div>`;
-                        }
-                        reactHtml += '</div>';
-                    }
-
-                    const html = `
-                        <div class="msg-container ${isMe ? 'me' : 'other'}" id="msg-${m.id}">
-                            <div class="msg-wrapper" oncontextmenu="showContext(event, '${m.id}', ${isMe})">
-                                ${isMe ? avatar : avatar}
-                                <div class="msg-bubble">
-                                    <span class="msg-name">${m.name}</span>
-                                    ${replyHtml}
-                                    <div>${cleanText}</div>
-                                    ${fileHtml}
-                                    ${reactHtml}
-                                    <div class="msg-footer"><span>${m.time}</span>${m.edited ? '<span>(e)</span>' : ''}</div>
-                                </div>
-                            </div>
-                        </div>`;
-                    ui.msgs.innerHTML += html;
-                });
+                    groupHtml += `</div>`; 
+                    ui.msgs.innerHTML += groupHtml;
+                }
 
                 if (force || isBottom) ui.scrollArea.scrollTop = ui.scrollArea.scrollHeight;
             });
