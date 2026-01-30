@@ -8,16 +8,20 @@ ini_set('display_errors', 0);
 
 /* ================= CONFIG ================= */
 $config = [
-    'password'       => '14001404', // رمز ورود کلی به چت روم
-    'refresh_rate'   => 200000, // میلی ثانیه
+    'password'       => '14001404', // رمز ورود کلی
+    'refresh_rate'   => 2000, // میلی ثانیه (برای تست سریعتر کردم، میتوانید برگردانید به 200000)
     'base_file'      => 'chat_history',
     'users_file'     => 'chat_users.json',
     'upload_dir'     => 'uploads',
     'max_messages'   => 50,
     'use_whitelist'  => false,
-    'whitelist'      => [
-        '09120000000',
-    ]
+    'whitelist'      => ['09120000000'],
+    // --- تنظیمات اتاق‌ها ---
+    'rooms' => [
+        'general' => 'گفتگوی عمومی',
+        'news'    => 'اخبار و اطلاعیه ها',
+        'docs'    => 'فایل جزوات'
+        ]
 ];
 
 /* ================= BACKEND ================= */
@@ -34,7 +38,15 @@ function saveJson($path, $data) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
     $action = $_POST['action'] ?? '';
-    $dataFile = __DIR__ . '/' . $config['base_file'] . '.json';
+    
+    // تشخیص اتاق (پیش‌فرض روی اولین اتاق)
+    $roomKey = $_POST['room'] ?? array_key_first($config['rooms']);
+    if (!array_key_exists($roomKey, $config['rooms'])) {
+        $roomKey = array_key_first($config['rooms']);
+    }
+
+    // فایل دیتای مربوط به هر اتاق جداگانه ساخته می‌شود
+    $dataFile = __DIR__ . '/' . $config['base_file'] . '_' . $roomKey . '.json';
     $usersFile = __DIR__ . '/' . $config['users_file'];
 
     // --- AUTH: LOGOUT ---
@@ -143,7 +155,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (count($msgs) >= $config['max_messages']) {
-            rename($dataFile, __DIR__ . '/' . $config['base_file'] . '_archive_' . date('Ymd_His') . '.json');
+            // آرشیو کردن با نام اتاق
+            rename($dataFile, __DIR__ . '/' . $config['base_file'] . '_' . $roomKey . '_archive_' . date('Ymd_His') . '.json');
             $msgs = [['id'=>time(), 'mobile'=>'sys', 'name'=>'System', 'msg'=>'--- آرشیو شد ---', 'time'=>date('H:i'), 'type'=>'system']];
         }
 
@@ -204,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Siterah</title>
+    <title>Siterah Multi-Room</title>
     <style>
         @font-face { font-family: 'Alibaba'; src: url('Alibaba.ttf') format('truetype'); }
         
@@ -222,6 +235,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --msg-other-text: #e2e8f0;
             --reply-bg: rgba(0,0,0,0.15);
             --shadow: rgba(0,0,0,0.2);
+            --active-tab-bg: #2563eb;
+            --tab-text: #94a3b8;
         }
 
         [data-theme="light"] {
@@ -238,6 +253,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --msg-other-text: #1f2937;
             --reply-bg: rgba(0,0,0,0.05);
             --shadow: rgba(0,0,0,0.05);
+            --active-tab-bg: #e1f5fe;
+            --tab-text: #64748b;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Alibaba', Tahoma, sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -260,7 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         /* CHAT LAYOUT */
         #chat-layer { display:none; height:100%; flex-direction:column; background:var(--bg); color:var(--text); }
         
-        #header-wrapper { padding: 10px 0; width: 100%; z-index: 10; flex-shrink: 0; }
+        #header-wrapper { padding: 10px 0 0 0; width: 100%; z-index: 10; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; }
         header { 
             max-width: 800px; 
             margin: 0 auto;
@@ -272,7 +289,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border:1px solid var(--border); 
             border-radius: 20px;
             box-shadow: 0 4px 6px -1px var(--shadow);
-            width: 95%; /* Kept flexible but with margins */
+            width: 95%;
+        }
+
+        /* ROOM TABS */
+        #room-tabs {
+            width: 95%; max-width: 800px;
+            display: flex; gap: 8px; overflow-x: auto;
+            padding-bottom: 5px; scrollbar-width: none;
+        }
+        #room-tabs::-webkit-scrollbar { display: none; }
+        .room-tab {
+            white-space: nowrap; padding: 8px 16px;
+            background: var(--chat-bg); color: var(--tab-text);
+            border: 1px solid var(--border); border-radius: 12px;
+            font-size: 0.85rem; cursor: pointer; transition: 0.2s;
+            opacity: 0.8;
+        }
+        .room-tab.active {
+            background: var(--active-tab-bg);
+            color: var(--accent);
+            border-color: var(--accent);
+            font-weight: bold; opacity: 1;
         }
         
         #scroll-area { flex: 1; overflow-y: auto; width: 100%; display: flex; flex-direction: column; }
@@ -401,7 +439,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         @media (max-width: 600px) {
             #input-container { padding: 0 10px; }
-            header { width: 95%; } 
+            header, #room-tabs { width: 95%; } 
             .input-row { padding: 5px; }
             .msg-wrapper { max-width: 90%; }
             .icon-btn { flex-shrink: 0; }
@@ -462,6 +500,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:5px 10px;border-radius:6px;cursor:pointer">خروج</button>
             </header>
+            
+            <!-- Room Tabs -->
+            <div id="room-tabs">
+                <?php foreach($config['rooms'] as $key => $label): ?>
+                    <div class="room-tab" id="tab-<?php echo $key; ?>" onclick="switchRoom('<?php echo $key; ?>')"><?php echo $label; ?></div>
+                <?php endforeach; ?>
+            </div>
         </div>
 
         <div id="scroll-area">
@@ -518,6 +563,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         let selectedFile = null;
         let ctxTargetId = null;
 
+        // Multi-room support
+        let currentRoom = '<?php echo array_key_first($config['rooms']); ?>';
+
         // Recording vars
         let mediaRec = null;
         let audioChunks = [];
@@ -540,7 +588,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             themeBtn: document.getElementById('theme-btn'),
             recUi: document.getElementById('rec-ui'),
             normalInput: document.getElementById('normal-input-row'),
-            recTime: document.getElementById('rec-time')
+            recTime: document.getElementById('rec-time'),
+            roomTabs: document.querySelectorAll('.room-tab')
         };
 
         // --- THEME LOGIC ---
@@ -575,7 +624,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             document.addEventListener('click', () => { ui.ctxMenu.style.display = 'none'; ui.emojiGrid.style.display = 'none'; });
             ui.emojiGrid.onclick = e => e.stopPropagation();
             ui.ctxMenu.onclick = e => e.stopPropagation();
+            
+            // Set initial active tab
+            switchRoom(currentRoom, false);
         };
+
+        // --- ROOM LOGIC ---
+        function switchRoom(roomId, shouldLoad = true) {
+            currentRoom = roomId;
+            // Update UI
+            ui.roomTabs.forEach(tab => tab.classList.remove('active'));
+            document.getElementById('tab-' + roomId).classList.add('active');
+            
+            // Reset chat view
+            if(shouldLoad) {
+                cancelReply();
+                document.getElementById('cancel-edit-btn').click();
+                ui.msgs.innerHTML = '<div style="text-align:center;padding:20px;opacity:0.5">در حال بارگذاری اتاق...</div>';
+                loadMsgs(true);
+            }
+        }
 
         // --- RECORDING LOGIC ---
         async function startRec() {
@@ -635,6 +703,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             fd.append('action', 'send');
             fd.append('file', blob, 'voice.webm'); // Name triggers extension detection on server
             if(replyingTo) fd.append('reply_to_id', replyingTo.id);
+            
+            // Add Room
+            fd.append('room', currentRoom);
             
             fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
                 if(d.status === 'success') { cancelReply(); loadMsgs(true); }
@@ -757,7 +828,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function sendMessage() {
             const text = ui.txt.value.trim();
             if (editingId && text) {
-                post('edit', { id: editingId, text: text }).then(d => {
+                post('edit', { id: editingId, text: text, room: currentRoom }).then(d => {
                     if(d.status === 'success') { document.getElementById('cancel-edit-btn').click(); loadMsgs(); }
                 });
                 return;
@@ -768,6 +839,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             fd.append('action', 'send'); fd.append('message', text);
             if(selectedFile) fd.append('file', selectedFile);
             if(replyingTo) fd.append('reply_to_id', replyingTo.id);
+            
+            // Add Room
+            fd.append('room', currentRoom);
 
             const btn = document.getElementById('send-btn');
             const tmp = btn.innerText; btn.innerText = '...';
@@ -784,7 +858,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ui.ctxMenu.style.display = 'flex';
             document.getElementById('ctx-edit-opts').style.display = isMe ? 'flex' : 'none';
         }
-        function doReact(emoji) { if(ctxTargetId) post('react', { id: ctxTargetId, emoji: emoji }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
+        function doReact(emoji) { if(ctxTargetId) post('react', { id: ctxTargetId, emoji: emoji, room: currentRoom }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
         function doReply() {
             const msg = chatData.find(m => m.id == ctxTargetId);
             if(msg) { replyingTo = { id: msg.id }; showReplyBar(msg.name, msg.msg || (msg.file ? "فایل" : "...")); ui.txt.focus(); }
@@ -795,7 +869,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if(msg) { editingId = msg.id; ui.txt.value = msg.msg; ui.txt.focus(); document.getElementById('cancel-edit-btn').style.display = 'flex'; }
             ui.ctxMenu.style.display = 'none';
         }
-        function doDelete() { if(confirm('حذف؟')) post('delete', { id: ctxTargetId }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
+        function doDelete() { if(confirm('حذف؟')) post('delete', { id: ctxTargetId, room: currentRoom }).then(() => loadMsgs()); ui.ctxMenu.style.display = 'none'; }
 
         // --- SCROLL TO REPLY ---
         window.scrollToMsg = function(id) {
@@ -813,11 +887,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         };
 
         function loadMsgs(force = false) {
-            post('fetch', {}).then(d => {
+            // Include room in fetch
+            post('fetch', { room: currentRoom }).then(d => {
                 const msgs = d.messages || [];
                 chatData = msgs;
                 const isBottom = ui.scrollArea.scrollTop + ui.scrollArea.clientHeight >= ui.scrollArea.scrollHeight - 50;
                 ui.msgs.innerHTML = '';
+
+                if(msgs.length === 0) {
+                     ui.msgs.innerHTML = '<div style="text-align:center;padding:20px;opacity:0.5">پیامی نیست</div>';
+                }
 
                 msgs.forEach(m => {
                     if(m.type === 'system') { ui.msgs.innerHTML += `<div style="text-align:center;font-size:0.7rem;opacity:0.6;margin:10px 0">${m.msg}</div>`; return; }
@@ -828,8 +907,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     let replyHtml = '';
                     if (m.reply_to) {
                         replyHtml = `<div class="reply-quote" onclick="scrollToMsg('${m.reply_to.id}')">
-                                        <span class="reply-sender">${m.reply_to.name}</span>
-                                        <span class="reply-text">${m.reply_to.has_file ? '📎 ' : ''}${m.reply_to.preview}</span>
+                                            <span class="reply-sender">${m.reply_to.name}</span>
+                                            <span class="reply-text">${m.reply_to.has_file ? '📎 ' : ''}${m.reply_to.preview}</span>
                                     </div>`;
                     }
 
@@ -880,7 +959,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             });
         }
         function post(act, data) {
-            const fd = new FormData(); fd.append('action', act); for(let k in data) fd.append(k, data[k]);
+            const fd = new FormData(); 
+            fd.append('action', act); 
+            for(let k in data) fd.append(k, data[k]);
             return fetch('', { method:'POST', body:fd }).then(r=>r.json());
         }
     </script>
