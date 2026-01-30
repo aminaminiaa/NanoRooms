@@ -1,4 +1,3 @@
-
 <?php
 error_reporting(0);
 ini_set('display_errors', 0);
@@ -9,8 +8,8 @@ ini_set('display_errors', 0);
 
 /* ================= CONFIG ================= */
 $config = [
-    'password'       => '14001400', // رمز ورود کلی به چت روم
-    'refresh_rate'   => 50000, // میلی ثانیه
+    'password'       => '14001404', // رمز ورود کلی به چت روم
+    'refresh_rate'   => 200000, // میلی ثانیه
     'base_file'      => 'chat_history',
     'users_file'     => 'chat_users.json',
     'upload_dir'     => 'uploads',
@@ -46,41 +45,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // --- AUTH: LOGIN ---
     if ($action === 'login') {
-        $sysPass = $_POST['password'] ?? ''; // رمز کلی سیستم
+        $sysPass = $_POST['password'] ?? '';
         $mobile = $_POST['mobile'] ?? '';
         $name = trim($_POST['name'] ?? '');
-        $userPass = $_POST['user_password'] ?? ''; // رمز شخصی کاربر
+        $userPass = $_POST['user_password'] ?? '';
         
-        // 1. بررسی رمز کلی سیستم
         if ($sysPass !== $config['password']) exit(json_encode(['status'=>'error', 'msg'=>'رمز عبور چت روم اشتباه است']));
         if ($config['use_whitelist'] && !in_array($mobile, $config['whitelist'])) exit(json_encode(['status'=>'error', 'msg'=>'شماره مجاز نیست']));
 
         $users = getJson($usersFile);
         $userData = $users[$mobile] ?? null;
 
-        // پشتیبانی از نسخه قبلی
-        if (is_string($userData)) {
-            $userData = ['name' => $userData];
-        }
+        if (is_string($userData)) { $userData = ['name' => $userData]; }
 
-        // 2. سناریوی ثبت نام یا ورود
         if ($userData && isset($userData['pass_hash'])) {
-            // --- کاربر وجود دارد و رمز دارد (Login) ---
-            if (empty($userPass)) {
-                exit(json_encode(['status'=>'need_pass', 'msg'=>'لطفا رمز عبور خود را وارد کنید']));
-            }
-            // بررسی صحت رمز
-            if (!password_verify($userPass, $userData['pass_hash'])) {
-                exit(json_encode(['status'=>'error', 'msg'=>'رمز عبور شما اشتباه است']));
-            }
+            if (empty($userPass)) exit(json_encode(['status'=>'need_pass', 'msg'=>'لطفا رمز عبور خود را وارد کنید']));
+            if (!password_verify($userPass, $userData['pass_hash'])) exit(json_encode(['status'=>'error', 'msg'=>'رمز عبور شما اشتباه است']));
             $finalName = $userData['name'];
         } else {
-            // --- کاربر جدید است یا رمز ندارد (Register) ---
-            if (empty($name) || empty($userPass)) {
-                exit(json_encode(['status'=>'need_register', 'msg'=>'لطفا نام نمایشی و یک رمز عبور جدید تعیین کنید']));
-            }
-            
-            // ذخیره کاربر جدید
+            if (empty($name) || empty($userPass)) exit(json_encode(['status'=>'need_register', 'msg'=>'لطفا نام نمایشی و یک رمز عبور جدید تعیین کنید']));
             $users[$mobile] = [
                 'name' => $name,
                 'pass_hash' => password_hash($userPass, PASSWORD_DEFAULT),
@@ -90,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $finalName = $name;
         }
 
-        // ساخت کوکی و ورود موفق
         $token = base64_encode(json_encode(['mobile' => $mobile, 'name' => $finalName]));
         setcookie('chat_token', $token, time() + (12 * 3600), "/", "", false, true);
         exit(json_encode(['status'=>'success', 'user'=>['mobile'=>$mobile, 'name'=>$finalName]]));
@@ -126,6 +108,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!is_dir($upDir)) mkdir($upDir, 0755, true);
             $f = $_FILES['file'];
             $ext = pathinfo($f['name'], PATHINFO_EXTENSION);
+            if ($f['name'] === 'voice.webm') $ext = 'webm';
+            
             $newName = time() . '_' . rand(1000,9999) . '.' . $ext;
             
             if ($f['size'] > 100 * 1024 * 1024) exit(json_encode(['status'=>'error', 'msg'=>'حجم فایل زیاد است']));
@@ -135,6 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'name' => $f['name'],
                     'path' => $config['upload_dir'] . '/' . $newName,
                     'is_image' => in_array(strtolower($ext), ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                    'is_audio' => in_array(strtolower($ext), ['mp3', 'wav', 'ogg', 'webm', 'm4a']),
                     'size' => round($f['size']/1024) . ' KB'
                 ];
             }
@@ -218,13 +203,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Siterah</title>
     <style>
         @font-face { font-family: 'Alibaba'; src: url('Alibaba.ttf') format('truetype'); }
         
         :root {
-            /* متغیرهای پیش‌فرض (تم تیره) */
             --bg: #0f172a; 
             --chat-bg: #1e293b; 
             --me: #374151; 
@@ -240,7 +224,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --shadow: rgba(0,0,0,0.2);
         }
 
-        /* تم روشن */
         [data-theme="light"] {
             --bg: #f3f4f6; 
             --chat-bg: #ffffff; 
@@ -258,8 +241,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Alibaba', Tahoma, sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; font-size: 14px; transition: background 0.3s, color 0.3s; }
+        body { background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; overflow: hidden; font-size: 14px; transition: background 0.3s, color 0.3s; }
         
+        /* RESTORED SCROLLBAR STYLE */
         ::-webkit-scrollbar { width: 15px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 8px; }
@@ -269,15 +253,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #decoy-input { margin-top:50px; border:1px solid #ddd; padding:8px; width:200px; text-align:center; }
         
         #login-modal { position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:8000; display:none; align-items:center; justify-content:center; backdrop-filter: blur(2px); }
-        .login-box { width:300px; padding:25px; background:var(--chat-bg); border-radius:12px; text-align:center; color:var(--text); border: 1px solid var(--border); }
+        .login-box { width:90%; max-width:300px; padding:25px; background:var(--chat-bg); border-radius:12px; text-align:center; color:var(--text); border: 1px solid var(--border); }
         .login-inp { width:100%; padding:12px; margin:10px 0; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); text-align:center; }
         .login-btn { width:100%; padding:12px; background:var(--accent); border:none; border-radius:8px; color:white; font-weight:bold; cursor:pointer; }
-        .login-label { font-size: 0.8rem; opacity: 0.7; margin-top: 5px; display: block; text-align: right; }
-
+        
         /* CHAT LAYOUT */
         #chat-layer { display:none; height:100%; flex-direction:column; background:var(--bg); color:var(--text); }
         
-        #header-wrapper { padding: 10px 0; width: 100%; z-index: 10; }
+        #header-wrapper { padding: 10px 0; width: 100%; z-index: 10; flex-shrink: 0; }
         header { 
             max-width: 800px; 
             margin: 0 auto;
@@ -289,17 +272,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border:1px solid var(--border); 
             border-radius: 20px;
             box-shadow: 0 4px 6px -1px var(--shadow);
-            width: 95%;
+            width: 95%; /* Kept flexible but with margins */
         }
         
         #scroll-area { flex: 1; overflow-y: auto; width: 100%; display: flex; flex-direction: column; }
-        #msg-inner { width: 100%; max-width: 800px; margin: 0 auto; padding: 20px 15px; display: flex; flex-direction: column; gap: 15px; }
+        #msg-inner { width: 100%; max-width: 800px; margin: 0 auto; padding: 20px 15px; display: flex; flex-direction: column; gap: 15px; padding-bottom: 20px;}
 
         .msg-container { display: flex; width: 100%; }
         .msg-container.me { justify-content: flex-end; }
         .msg-container.other { justify-content: flex-start; }
         
-        .msg-wrapper { display: flex; align-items: flex-end; gap: 10px; max-width: 80%; }
+        .msg-wrapper { display: flex; align-items: flex-end; gap: 10px; max-width: 85%; }
         .msg-container.me .msg-wrapper { flex-direction: row-reverse; } 
         
         .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text); }
@@ -334,35 +317,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .reply-sender { font-weight: bold; margin-bottom: 2px; opacity: 0.9; }
         .reply-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; font-size: 0.75rem;}
 
-        /* INPUT */
+        /* INPUT AREA */
         #input-wrapper {
-            background: linear-gradient(to top, var(--bg) 80%, transparent);
+            background: linear-gradient(to top, var(--bg) 90%, transparent);
             padding: 10px 0; width: 100%; position: relative; z-index: 50;
+            flex-shrink: 0;
+            padding-bottom: calc(10px + env(safe-area-inset-bottom));
         }
         #input-container { max-width: 800px; margin: 0 auto; padding: 0 10px; position: relative; }
         #input-box {
             background: var(--chat-bg); border: 1px solid var(--border); border-radius: 20px;
             padding: 5px; display: flex; flex-direction: column; position: relative;
-            box-shadow: 0 -2px 10px var(--shadow); min-height: 60px;
+            box-shadow: 0 -2px 10px var(--shadow); 
+            min-height: 98px; /* Minimum height limit */
+            transition: height 0.05s; 
         }
         
         #resize-handle { 
             width: 40px; height: 4px; background: #94a3b8; border-radius: 2px; 
             margin: 4px auto; cursor: ns-resize; flex-shrink: 0; opacity: 0.5; 
-            touch-action: none; 
+            touch-action: none; display: block; 
         }
         #reply-bar { display: none; background: var(--bg); border-right: 3px solid var(--accent); padding: 8px 12px; margin: 5px; border-radius: 6px; align-items: center; justify-content: space-between; }
 
         .input-row { display: flex; align-items: flex-end; gap: 5px; padding: 5px; flex: 1; height: 100%; }
         textarea { 
-            flex:1; background:transparent; border:none; color:var(--text); resize:none; padding:8px; outline:none; font-size:1rem; 
+            flex:1; background:transparent; border:none; color:var(--text); resize:none; padding:8px 5px; outline:none; font-size:1rem; 
             height: 100%; 
-            min-height: 36px;
+            min-height: 60px;
         }
         
-        .icon-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: none; background: transparent; color: var(--text); opacity: 0.6; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
-        .icon-btn:hover { background: var(--bg); opacity: 1; }
-        .send-btn { background: var(--accent); color: white; opacity: 1; }
+        .icon-btn { 
+            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; 
+            border-radius: 50%; border: none; background: transparent; color: var(--text); 
+            opacity: 0.7; cursor: pointer; transition: 0.2s; 
+            flex-shrink: 0; 
+            font-size: 1.2rem;
+        }
+        .icon-btn:active { background: var(--bg); opacity: 1; transform: scale(0.95); }
+        .send-btn { background: var(--accent); color: white; opacity: 1; border-radius: 12px; }
         
         #ctx-menu { position: fixed; background: var(--chat-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: none; flex-direction: column; gap: 8px; z-index: 10000; box-shadow: 0 5px 15px var(--shadow); min-width: 120px; }
         .ctx-row { display: flex; gap: 10px; justify-content: center; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -371,21 +364,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .ctx-btn { cursor: pointer; padding: 6px 10px; border-radius: 4px; color: var(--text); font-size: 0.9rem; }
         .ctx-btn:hover { background: var(--bg); }
 
-        #emoji-grid { position:absolute; bottom:100%; right:10px; background:var(--chat-bg); padding:10px; border-radius:12px; display:none; grid-template-columns:repeat(6,1fr); gap:5px; box-shadow:0 5px 20px var(--shadow); border:1px solid var(--border); margin-bottom: 10px; z-index: 101; }
-        .emoji-item { cursor:pointer; font-size:1.4rem; padding:6px; border-radius:4px; text-align:center; }
-        .emoji-item:hover { background: var(--bg); }
+        #emoji-grid { 
+            position:absolute; bottom:100%; right:0; left: 0; margin: 0 auto; max-width: 800px;
+            background:var(--chat-bg); padding:10px; border-radius:12px; display:none; 
+            grid-template-columns:repeat(auto-fill, minmax(40px, 1fr)); 
+            gap:5px; box-shadow:0 5px 20px var(--shadow); border:1px solid var(--border); margin-bottom: 10px; z-index: 101; 
+        }
+        .emoji-item { cursor:pointer; font-size:1.5rem; padding:8px; border-radius:8px; text-align:center; }
+        .emoji-item:active { background: var(--bg); }
         
         .reactions-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
         .reaction-item { background: rgba(0,0,0,0.1); border-radius: 12px; padding: 2px 8px; font-size: 0.75rem; color: var(--text); display:flex; gap:4px; align-items:center; opacity: 0.8; }
-        .msg-link { color: var(--accent); text-decoration: underline; }
+        
+        /* LINK COLORS & IMAGES & AUDIO */
         .msg-img { max-width: 100%; border-radius: 8px; margin-top: 5px; cursor: pointer; }
+        
+        /* Stylized Audio Player */
+        .msg-audio { 
+            max-width: 100%; 
+            height: 40px; 
+            margin-top: 8px; 
+            margin-bottom: 4px;
+            border-radius: 20px; /* Rounded corners */
+            display: block;
+        }
+        
+        .msg-link { text-decoration: underline; }
+        /* Link color for ME (Dark/Blue bubble) */
+        .msg-container.me .msg-link { color: #2563eb; }
+        /* Link color for OTHER */
+        .msg-container.other .msg-link { color: var(--accent); }
+
+        /* RECORDING UI */
+        .rec-dot { color: #ef4444; animation: pulse 1s infinite; font-size: 1.2rem; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        @media (max-width: 600px) {
+            #input-container { padding: 0 10px; }
+            header { width: 95%; } 
+            .input-row { padding: 5px; }
+            .msg-wrapper { max-width: 90%; }
+            .icon-btn { flex-shrink: 0; }
+        }
     </style>
 </head>
 <body>
     <div id="decoy-layer">
         <h1 style="font-size:4rem;color:#ccc">404</h1>
         <p style="color:#888">Not Found</p>
-        <p style="color:#888">اگه نتونستین وارد بشین با من در تماس باشید : 09999923069</p>
+        <p style="color:#888">راهنمایی برای ورود به سامانه : 09999923069</p>
         <input type="text" id="decoy-input" autocomplete="off">
     </div>
 
@@ -400,7 +427,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="text" id="name-inp" class="login-inp" placeholder="نام نمایشی (فارسی)">
             </div>
             
-            <!-- اینجا اصلاح شد: استایل دیسپلی نان برداشته شد تا همیشه نمایش داده شود -->
             <div id="password-field">
                 <input type="password" id="pass-inp" class="login-inp" placeholder="رمز عبور شخصی" dir="ltr">
             </div>
@@ -415,6 +441,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <span class="ctx-emoji" onclick="doReact('😂')">😂</span>
             <span class="ctx-emoji" onclick="doReact('😭')">😭</span>
             <span class="ctx-emoji" onclick="doReact('👍')">👍</span>
+            <span class="ctx-emoji" onclick="doReact('👎')">👎</span>
             <span class="ctx-emoji" onclick="doReact('🔥')">🔥</span>
         </div>
         <div class="ctx-opts">
@@ -455,13 +482,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <span style="cursor:pointer; padding:5px; font-size:1.2rem; color:#ef4444" onclick="cancelReply()">×</span>
                     </div>
 
-                    <div class="input-row">
+                    <!-- Recording UI -->
+                    <div id="rec-ui" style="display:none; align-items:center; padding:5px 10px; gap:10px; height:100%">
+                        <span class="rec-dot">●</span>
+                        <span id="rec-time" style="font-variant-numeric: tabular-nums;">00:00</span>
+                        <div style="flex:1"></div>
+                        <button class="icon-btn" onclick="cancelRec()" style="color:#ef4444; border:1px solid #ef4444; font-size:0.9rem">لغو</button>
+                        <button class="icon-btn" onclick="finishRec()" style="color:#fff; background:#22c55e; font-size:1rem; opacity:1">ارسال</button>
+                    </div>
+
+                    <div class="input-row" id="normal-input-row">
                         <button class="icon-btn" id="emoji-toggle">😊</button>
-                        <textarea id="msg-text" placeholder="پیام ..."></textarea>
+                        <textarea id="msg-text" placeholder="پیام ..." rows="1"></textarea>
                         
                         <input type="file" id="file-inp" hidden>
                         <button class="icon-btn" onclick="document.getElementById('file-inp').click()">📎</button>
                         
+                        <button class="icon-btn" id="rec-btn" onclick="startRec()">🎤</button>
+
                         <button class="icon-btn send-btn" id="send-btn">➤</button>
                         <button class="icon-btn" id="cancel-edit-btn" style="display:none;color:#ef4444">✕</button>
                     </div>
@@ -480,6 +518,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         let selectedFile = null;
         let ctxTargetId = null;
 
+        // Recording vars
+        let mediaRec = null;
+        let audioChunks = [];
+        let recInterval = null;
+        let recStartTime = 0;
+
         const ui = {
             decoyInp: document.getElementById('decoy-input'),
             login: document.getElementById('login-modal'),
@@ -493,7 +537,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             replyBar: document.getElementById('reply-bar'),
             replyLabel: document.getElementById('reply-label'),
             replyContent: document.getElementById('reply-content'),
-            themeBtn: document.getElementById('theme-btn')
+            themeBtn: document.getElementById('theme-btn'),
+            recUi: document.getElementById('rec-ui'),
+            normalInput: document.getElementById('normal-input-row'),
+            recTime: document.getElementById('rec-time')
         };
 
         // --- THEME LOGIC ---
@@ -530,6 +577,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ui.ctxMenu.onclick = e => e.stopPropagation();
         };
 
+        // --- RECORDING LOGIC ---
+        async function startRec() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('مرورگر شما از ضبط صدا پشتیبانی نمی‌کند یا دسترسی ندارد (از HTTPS استفاده کنید).');
+                return;
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRec = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRec.ondataavailable = e => audioChunks.push(e.data);
+                mediaRec.start();
+                
+                // Switch UI
+                ui.normalInput.style.display = 'none';
+                ui.recUi.style.display = 'flex';
+                recStartTime = Date.now();
+                updateRecTime();
+                recInterval = setInterval(updateRecTime, 1000);
+            } catch(e) {
+                alert('خطا در دسترسی به میکروفون: ' + e.message);
+            }
+        }
+
+        function updateRecTime() {
+            const diff = Math.floor((Date.now() - recStartTime) / 1000);
+            const m = String(Math.floor(diff / 60)).padStart(2,'0');
+            const s = String(diff % 60).padStart(2,'0');
+            ui.recTime.innerText = m + ':' + s;
+        }
+
+        function cancelRec() {
+            stopRecInternal();
+            audioChunks = []; // discard
+        }
+
+        function finishRec() {
+            if (!mediaRec || mediaRec.state === 'inactive') return;
+            mediaRec.onstop = () => {
+                const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                sendVoice(blob);
+            };
+            stopRecInternal();
+        }
+
+        function stopRecInternal() {
+            if (mediaRec) { mediaRec.stop(); mediaRec.stream.getTracks().forEach(t=>t.stop()); }
+            clearInterval(recInterval);
+            ui.recUi.style.display = 'none';
+            ui.normalInput.style.display = 'flex';
+        }
+
+        function sendVoice(blob) {
+            const fd = new FormData();
+            fd.append('action', 'send');
+            fd.append('file', blob, 'voice.webm'); // Name triggers extension detection on server
+            if(replyingTo) fd.append('reply_to_id', replyingTo.id);
+            
+            fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
+                if(d.status === 'success') { cancelReply(); loadMsgs(true); }
+                else alert(d.msg || 'Error');
+            });
+        }
+
         // --- RESIZE FIX ---
         function initResize(e) {
             if(e.cancelable) e.preventDefault();
@@ -540,7 +652,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const doDrag = (e) => {
                 const curY = e.clientY || e.touches[0].clientY;
                 const diff = startY - curY;
-                const newH = Math.min(Math.max(60, startH + diff), 400);
+                const newH = Math.min(Math.max(60, startH + diff), 400); 
                 
                 ui.inputBox.style.height = newH + 'px';
             };
@@ -587,13 +699,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     enterChat(d.user);
                 } 
                 else if(d.status === 'need_pass') {
-                    // کاربر قدیمی است، فقط رمز بخواه
                     document.getElementById('password-field').style.display = 'block';
                     document.getElementById('register-fields').style.display = 'none';
                     document.getElementById('login-msg').innerText = d.msg;
                 }
                 else if(d.status === 'need_register') {
-                    // کاربر جدید است، رمز و نام بخواه
                     document.getElementById('password-field').style.display = 'block';
                     document.getElementById('register-fields').style.display = 'block';
                     document.getElementById('login-msg').innerText = d.msg;
@@ -613,7 +723,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setInterval(() => loadMsgs(false), CONFIG.delay);
         }
 
-        // --- LOGOUT FIX ---
         function logout() {
             post('logout', {}).then(() => {
                 location.reload();
@@ -727,11 +836,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     let fileHtml = '';
                     if(m.file) {
                         if(m.file.is_image) fileHtml = `<img src="${m.file.path}" class="msg-img" onclick="window.open(this.src)">`;
+                        else if(m.file.is_audio) fileHtml = `<audio controls src="${m.file.path}" class="msg-audio"></audio>`;
                         else fileHtml = `<a href="${m.file.path}" target="_blank" style="display:flex;align-items:center;margin-top:5px;text-decoration:none;color:inherit;background:rgba(0,0,0,0.05);padding:5px;border-radius:4px">📎 ${m.file.name}</a>`;
                     }
                     
                     let cleanText = m.msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                    cleanText = cleanText.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="msg-link">$1</a>');
+                    // URL Regex Fix: Exclude trailing ) . ,
+                    cleanText = cleanText.replace(/(https?:\/\/[^\s]+)/g, (match) => {
+                         const urlMatch = match.match(/^(.*?)([).,]*)$/);
+                         const cleanUrl = urlMatch[1];
+                         const trailing = urlMatch[2];
+                         return '<a href="' + cleanUrl + '" target="_blank" class="msg-link">' + cleanUrl + '</a>' + trailing;
+                    });
 
                     let reactHtml = '';
                     if(m.reactions && Object.keys(m.reactions).length > 0) {
