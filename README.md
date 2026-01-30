@@ -4,8 +4,6 @@
 
 **NanoRooms** is a single-file, database-free chat solution built with pure PHP and Vanilla JS. It is optimized for performance (approx. 50KB core), works seamlessly on low-bandwidth networks (2G), and requires zero installation dependencies. Perfect for private teams, secure file sharing, and emergency communication.
 
-![NanoRooms Preview](https://via.placeholder.com/800x400?text=App+Screenshot+Placeholder)
-
 ### ✨ Features
 
 * **Zero Dependencies:** No database (MySQL/SQLite) required. Uses efficient JSON flat-file storage.
@@ -57,13 +55,13 @@
 
 ### 🧩 Developer
 
-Developed by **[Your Name/Handle]**.
+Developed by **Amin Amini **.
 Found a bug or have a suggestion? Please report it via the **Issues** section.
 
 ---
 ---
 
-# نانو رومز (NanoRooms)
+# نانو رومز (NanoRooms - اتاق های سبک)
 
 > **ابزار ارتباطی لایت‌ویت (سبک)، امن و خود-میزبان (Self-hosted)؛ مناسب برای فعالیت در کشورهای دارای محدودیت اینترنت. بدون ردیابی اطلاعات و کتابخانه‌های خارجی. اشتراک‌گذاری امن اسناد محرمانه حتی در اتصالات ناپایدار.**
 
@@ -120,5 +118,5 @@ Found a bug or have a suggestion? Please report it via the **Issues** section.
 
 ### 🧩 توسعه‌دهنده
 
-توسعه داده شده توسط **[نام شما]**.
+توسعه داده شده توسط **امین امینی**.
 در صورت وجود باگ، پیشنهاد یا ایده‌ی جدید، از طریق بخش **Issues** در GitHub اطلاع دهید.
